@@ -49,6 +49,31 @@ void Logger::logDebug(std::string method, const char* fmt, ...) {
 	va_end(fmtargs);
 }
 
+void Logger::trace(const char* file, const char* function, const char* event, const char* fmt, ...) {
+	char details[4096] = { 0 };
+	if (fmt != nullptr) {
+		va_list fmtargs;
+		va_start(fmtargs, fmt);
+		vsnprintf_s(details, sizeof(details), _TRUNCATE, fmt, fmtargs);
+		va_end(fmtargs);
+	}
+
+	char time[64] = { 0 };
+	getTimestamp(time, sizeof(time));
+	std::lock_guard<std::mutex> lock(mutex);
+	const auto sequence = ++traceCounter;
+	std::ofstream handle;
+	try {
+		handle.open(LOG_FILE, std::ios_base::app);
+		handle << time << "[TRACE " << sequence << "] [TID " << GetCurrentThreadId() << "] ["
+			<< (file != nullptr ? file : "?") << "] [" << (function != nullptr ? function : "?")
+			<< "] [" << (event != nullptr ? event : "?") << "] " << details << "\n" << std::flush;
+		handle.close();
+	}
+	catch (std::ofstream::failure) {
+	}
+}
+
 std::string Logger::argFormatToString(const char* fmt, va_list* args) {
 	char buffer[4096] = { 0x00 };
 	int rc = vsnprintf_s(buffer, sizeof(buffer), fmt, *args);

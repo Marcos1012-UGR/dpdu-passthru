@@ -21,6 +21,7 @@
 #include <afxmt.h>
 //#include "../pch.h"
 
+#include "../Logger.h"
 #include "j2534_v0404.h"
 //#include "SelectionBox.h"
 //#include "shim_debug.h"
@@ -58,6 +59,33 @@ static bool fPerformanceCounterInitialized = false;
 static CCriticalSection CritSectionAutoLock;
 static bool fAutoLockInitialized = false;
 
+#define SHIM_TRACE(event, ...) LOGGER.trace("shim_loader.cpp", __FUNCTION__, event, __VA_ARGS__)
+
+static std::string toTraceString(LPCTSTR value)
+{
+	if (value == nullptr)
+		return "<null>";
+#ifdef _UNICODE
+	const int required = WideCharToMultiByte(CP_UTF8, 0, value, -1, nullptr, 0, nullptr, nullptr);
+	if (required <= 1)
+		return "";
+	std::string result(static_cast<size_t>(required), '\0');
+	WideCharToMultiByte(CP_UTF8, 0, value, -1, &result[0], required, nullptr, nullptr);
+	result.resize(static_cast<size_t>(required - 1));
+	return result;
+#else
+	return value;
+#endif
+}
+
+static FARPROC traceGetProcAddress(HINSTANCE module, const char* symbol)
+{
+	LOGGER.trace("shim_loader.cpp", "shim_loadLibrary", "BEFORE", "GetProcAddress symbol=\"%s\" module=%p", symbol, module);
+	FARPROC address = GetProcAddress(module, symbol);
+	LOGGER.trace("shim_loader.cpp", "shim_loadLibrary", "GetProcAddress", "symbol=\"%s\" address=%p", symbol, address);
+	return address;
+}
+
 auto_lock::auto_lock()
 {
 	// ONCE -- the first time somebody creates an autolock we need to initialize the mutex
@@ -84,6 +112,7 @@ auto_lock::~auto_lock()
 // Find all J2534 v04.04 interfaces listed in the registry
 void shim_enumPassThruInterfaces(std::set<cPassThruInfo> &registryList)
 {
+	SHIM_TRACE("ENTER", "registryList=%p", &registryList);
 	HKEY hKey1,hKey2,hKey3;
 	FILETIME FTime;
 	long hKey2RetVal;
@@ -94,17 +123,25 @@ void shim_enumPassThruInterfaces(std::set<cPassThruInfo> &registryList)
 	registryList.clear();
 
 	// Open HKLM/Software
-	if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, _T("Software"), 0, KEY_READ, &hKey1) != ERROR_SUCCESS)
+	SHIM_TRACE("BEFORE", "RegOpenKeyEx HKLM\\Software");
+	const LONG openSoftwareResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, _T("Software"), 0, KEY_READ, &hKey1);
+	SHIM_TRACE("AFTER", "RegOpenKeyEx HKLM\\Software ret=%ld", openSoftwareResult);
+	if (openSoftwareResult != ERROR_SUCCESS)
 	{
 		//strcpy_s(J2534BoilerplateErrorResult, sizeof(J2534BoilerplateErrorResult), "Can't open HKEY_LOCAL_MACHINE->Software key.");
+		SHIM_TRACE("EXIT", "registry enumeration unavailable ret=%ld entries=0", openSoftwareResult);
 		return;
 	}
 
 	// Open HKLM/Software/PassThruSupport.04.04
-	if (RegOpenKeyEx(hKey1, _T("PassThruSupport.04.04"), 0, KEY_READ, &hKey2) != ERROR_SUCCESS)
+	SHIM_TRACE("BEFORE", "RegOpenKeyEx HKLM\\Software\\PassThruSupport.04.04");
+	const LONG openPassThruResult = RegOpenKeyEx(hKey1, _T("PassThruSupport.04.04"), 0, KEY_READ, &hKey2);
+	SHIM_TRACE("AFTER", "RegOpenKeyEx PassThruSupport.04.04 ret=%ld", openPassThruResult);
+	if (openPassThruResult != ERROR_SUCCESS)
 	{
 		//strcpy_s(J2534BoilerplateErrorResult, sizeof(J2534BoilerplateErrorResult), "Can't open HKEY_LOCAL_MACHINE->..->PassThruSupport.04.04 key");
 		RegCloseKey(hKey1);
+		SHIM_TRACE("EXIT", "registry enumeration unavailable ret=%ld entries=0", openPassThruResult);
 		return;
 	}
 	RegCloseKey(hKey1);
@@ -187,11 +224,13 @@ void shim_enumPassThruInterfaces(std::set<cPassThruInfo> &registryList)
 			// If everything was successful then add it to the list
 			cPassThruInfo registryEntry(strVendor, strName, strFunctionLibrary, strConfigApplication);
 			registryList.insert(registryEntry);
+			SHIM_TRACE("INTERFACE", "vendor=%s name=%s library=%s", toTraceString(strVendor.c_str()).c_str(), toTraceString(strName.c_str()).c_str(), toTraceString(strFunctionLibrary.c_str()).c_str());
 		}
 	} while (hKey2RetVal == ERROR_SUCCESS);
 
 	RegCloseKey(hKey2);
 	delete[] KeyValue;
+	SHIM_TRACE("EXIT", "entries=%zu", registryList.size());
 }
 
 double GetTimeSinceInit()
@@ -216,15 +255,20 @@ double GetTimeSinceInit()
 
 bool shim_checkAndAutoload(void)
 {
+	SHIM_TRACE("ENTER", "loaded=%s", fLibLoaded ? "true" : "false");
 	// We're OK if a library is loaded
 	if (fLibLoaded)
+	{
+		SHIM_TRACE("EXIT", "loaded=true");
 		return true;
+	}
 
 	// Define ALLOW_POPUP if you want this function to continue by scaning the registry, presenting
 	// a dialog, and allowing the user to pick a J2534 DLL. Leave it undefined if you want to force
 	// the app to call PassThruLoadLibrary
 
 #ifndef ALLOW_POPUP
+	SHIM_TRACE("EXIT", "loaded=false autoloadDisabled=true");
 	return false;
 #endif
 //
@@ -284,9 +328,11 @@ bool shim_checkAndAutoload(void)
 
 bool shim_loadLibrary(LPCTSTR szDLL)
 {
+	SHIM_TRACE("ENTER", "DLL=\"%s\" loaded=%s", toTraceString(szDLL).c_str(), fLibLoaded ? "true" : "false");
 	// Can't load a library if the string is NULL
 	if (szDLL == NULL)
 	{
+		SHIM_TRACE("EXIT", "loaded=false reason=null path");
 		return false;
 	}
 
@@ -306,29 +352,46 @@ bool shim_loadLibrary(LPCTSTR szDLL)
 
 	fLibLoaded = true;
 
-	_PassThruOpen = (PTOPEN)GetProcAddress(hDLL, "PassThruOpen");
-	_PassThruClose = (PTCLOSE)GetProcAddress(hDLL, "PassThruClose");
-	_PassThruConnect = (PTCONNECT)GetProcAddress(hDLL, "PassThruConnect");
-	_PassThruDisconnect = (PTDISCONNECT)GetProcAddress(hDLL, "PassThruDisconnect");
-	_PassThruReadMsgs = (PTREADMSGS)GetProcAddress(hDLL, "PassThruReadMsgs");
-	_PassThruWriteMsgs = (PTWRITEMSGS)GetProcAddress(hDLL, "PassThruWriteMsgs");
-	_PassThruStartPeriodicMsg = (PTSTARTPERIODICMSG)GetProcAddress(hDLL, "PassThruStartPeriodicMsg");
-	_PassThruStopPeriodicMsg = (PTSTOPPERIODICMSG)GetProcAddress(hDLL, "PassThruStopPeriodicMsg");
-	_PassThruStartMsgFilter = (PTSTARTMSGFILTER)GetProcAddress(hDLL, "PassThruStartMsgFilter");
-	_PassThruStopMsgFilter = (PTSTOPMSGFILTER)GetProcAddress(hDLL, "PassThruStopMsgFilter");
-	_PassThruSetProgrammingVoltage = (PTSETPROGRAMMINGVOLTAGE)GetProcAddress(hDLL, "PassThruSetProgrammingVoltage");
-	_PassThruReadVersion = (PTREADVERSION)GetProcAddress(hDLL, "PassThruReadVersion");
-	_PassThruGetLastError = (PTGETLASTERROR)GetProcAddress(hDLL, "PassThruGetLastError");
-	_PassThruIoctl = (PTIOCTL)GetProcAddress(hDLL, "PassThruIoctl");
+	_PassThruOpen = (PTOPEN)traceGetProcAddress(hDLL, "PassThruOpen");
+	_PassThruClose = (PTCLOSE)traceGetProcAddress(hDLL, "PassThruClose");
+	_PassThruConnect = (PTCONNECT)traceGetProcAddress(hDLL, "PassThruConnect");
+	_PassThruDisconnect = (PTDISCONNECT)traceGetProcAddress(hDLL, "PassThruDisconnect");
+	_PassThruReadMsgs = (PTREADMSGS)traceGetProcAddress(hDLL, "PassThruReadMsgs");
+	_PassThruWriteMsgs = (PTWRITEMSGS)traceGetProcAddress(hDLL, "PassThruWriteMsgs");
+	_PassThruStartPeriodicMsg = (PTSTARTPERIODICMSG)traceGetProcAddress(hDLL, "PassThruStartPeriodicMsg");
+	_PassThruStopPeriodicMsg = (PTSTOPPERIODICMSG)traceGetProcAddress(hDLL, "PassThruStopPeriodicMsg");
+	_PassThruStartMsgFilter = (PTSTARTMSGFILTER)traceGetProcAddress(hDLL, "PassThruStartMsgFilter");
+	_PassThruStopMsgFilter = (PTSTOPMSGFILTER)traceGetProcAddress(hDLL, "PassThruStopMsgFilter");
+	_PassThruSetProgrammingVoltage = (PTSETPROGRAMMINGVOLTAGE)traceGetProcAddress(hDLL, "PassThruSetProgrammingVoltage");
+	_PassThruReadVersion = (PTREADVERSION)traceGetProcAddress(hDLL, "PassThruReadVersion");
+	_PassThruGetLastError = (PTGETLASTERROR)traceGetProcAddress(hDLL, "PassThruGetLastError");
+	_PassThruIoctl = (PTIOCTL)traceGetProcAddress(hDLL, "PassThruIoctl");
 
+	SHIM_TRACE("EXIT", "loaded=true PassThruOpen=%p PassThruConnect=%p PassThruDisconnect=%p PassThruIoctl=%p", _PassThruOpen, _PassThruConnect, _PassThruDisconnect, _PassThruIoctl);
+	if (_PassThruOpen == nullptr || _PassThruClose == nullptr ||
+		_PassThruConnect == nullptr || _PassThruDisconnect == nullptr ||
+		_PassThruReadMsgs == nullptr || _PassThruWriteMsgs == nullptr ||
+		_PassThruStartPeriodicMsg == nullptr || _PassThruStopPeriodicMsg == nullptr ||
+		_PassThruStartMsgFilter == nullptr || _PassThruStopMsgFilter == nullptr ||
+		_PassThruSetProgrammingVoltage == nullptr || _PassThruReadVersion == nullptr ||
+		_PassThruGetLastError == nullptr || _PassThruIoctl == nullptr)
+	{
+		SHIM_TRACE("ERROR", "selected J2534 DLL is missing one or more required exports");
+		shim_unloadLibrary();
+		return false;
+	}
 	return true;
 }
 
 void shim_unloadLibrary()
 {
+	SHIM_TRACE("ENTER", "loaded=%s hDLL=%p", fLibLoaded ? "true" : "false", hDLL);
 	// Can't unload a library if there's nothing loaded
 	if (! fLibLoaded)
+	{
+		SHIM_TRACE("EXIT", "no library loaded");
 		return;
+	}
 
 	fLibLoaded = false;
 
@@ -349,7 +412,9 @@ void shim_unloadLibrary()
 	_PassThruIoctl = NULL;
 
 	BOOL fSuccess;
+	SHIM_TRACE("BEFORE", "FreeLibrary hDLL=%p", hDLL);
 	fSuccess = FreeLibrary(hDLL);
+	SHIM_TRACE("AFTER", "FreeLibrary ret=%s", fSuccess ? "true" : "false");
 	if (! fSuccess)
 	{
 		// Try to get the error text

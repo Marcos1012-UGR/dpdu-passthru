@@ -590,6 +590,7 @@ typedef struct {
                                        /* which indicates which expected response matched */
    UNUM32   NumMaskPatternBytes;       /* number of bytes in the Mask Data and Pattern Data*/
    UNUM8   *pMaskData;                 /* Pointer to Mask Data. Bits set to a '1' are care bits, '0' are don't care bits. */
+   UNUM8   *pMaskPattern;              /* Pointer to Mask Pattern. Bits set to a '1' are care bits, '0' are don't care bits. */
    UNUM8   *pPatternData;              /* Pointer to Pattern Data. Bytes to compare after the mask is applied */
    UNUM32	NumUniqueRespIds;	       /* number of items in the following array of unique response identifiers. If the number is set to 0, then responses with any unique response identifier are considered, when trying to match them to this expected response. */
    UNUM32	*pUniqueRespIds;	       /* Array containing unique response identifiers. Only responses with a unique response identifier found in this array are considered, when trying to match them to this expected response. */

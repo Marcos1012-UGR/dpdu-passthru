@@ -25,6 +25,7 @@
 #include <sstream>
 #include <Windows.h>
 #include <mutex>
+#include <atomic>
 
 #define LOG_FILE "C:\\Users\\Public\\dpdu_activity.log"
 
@@ -40,7 +41,9 @@ public:
 	void logWarn(std::string method, const char* fmt, ...);
 	void logError(std::string method, const char* fmt, ...);
 	void logDebug(std::string method, const char* fmt, ...);
+	void trace(const char* file, const char* function, const char* event, const char* fmt, ...);
 	void writeToFile(std::string message);
+	std::atomic<unsigned long long> traceCounter{ 0 };
 };
 
 extern Logger LOGGER;

@@ -10,6 +10,8 @@ public:
 
 	UNUM32 getHandle();
 	UNUM32 getType();
+	UNUM32 getTime() const;
+	void* getTag() const;
 
 	virtual long StartComm(unsigned long channelID, PDU_EVENT_ITEM* & pEvt) = 0;
 	virtual long StopComm(unsigned long channelID, PDU_EVENT_ITEM*& pEvt) = 0;
@@ -18,7 +20,7 @@ public:
 	T_PDU_STATUS GetStatus();
 
 	void Execute(PDU_EVENT_ITEM*& pEvt);
-	void Finish(PDU_EVENT_ITEM*& pEvt);
+	void Finish(PDU_EVENT_ITEM*& pEvt, bool forceFinish = false);
 	void Cancel(PDU_EVENT_ITEM*& pEvt);
 	void Destroy();
 

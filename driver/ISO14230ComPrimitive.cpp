@@ -9,6 +9,8 @@
 #include <string>
 #include <sstream>
 
+#define ISO_TRACE(event, ...) LOGGER.trace("ISO14230ComPrimitive.cpp", __FUNCTION__, event, __VA_ARGS__)
+
 constexpr int POLL_TIMEOUT_MS = 10;
 constexpr int TIMEOUT_MS = 1000;
 
@@ -17,43 +19,43 @@ const std::vector<UNUM8> MSG_TESTER_PRESENT_41 = { 0x80, 0x41, 0xf1, 0x01, 0x3e,
 long ISO14230ComPrimitive::StartComm(unsigned long channelID, PDU_EVENT_ITEM*& pEvt)
 {
 	long ret = STATUS_NOERROR;
+	ISO_TRACE("ENTER", "channelID=%lu hCoP=%u protocolID=%lu dataSize=%zu sendCycles=%d receiveCycles=%d eventOut=%p", channelID, m_hCoP, m_protocolID, m_CoPData.size(), m_CopCtrlData.NumSendCycles, m_CopCtrlData.NumReceiveCycles, &pEvt);
 
 	if (m_CopCtrlData.NumReceiveCycles == 0 || m_CopCtrlData.NumSendCycles == 0)
 	{
-		LOGGER.logInfo("ComPrimitive/StartComm", "finished NumReceiveCycles %u, NumSendCycles %u",
-			m_CopCtrlData.NumReceiveCycles, m_CopCtrlData.NumSendCycles);
+		ISO_TRACE("RESULT", "no-op because sendCycles=%d receiveCycles=%d", m_CopCtrlData.NumSendCycles, m_CopCtrlData.NumReceiveCycles);
+		ISO_TRACE("EXIT", "ret=%ld", ret);
 		return ret;
 	}
-
-	std::stringstream ss;
-	ss << "TX: ";
-	for (int i = 0; i < m_CoPData.size(); ++i)
-	{
-		ss << std::hex << (int)m_CoPData[i] << " ";
-	}
-	LOGGER.logInfo("ComPrimitive/StartComm", ss.str().c_str());
+	if (m_CoPData.size() < 2 || m_CoPData.size() > sizeof(PASSTHRU_MSG{}.Data))
+		return ERR_INVALID_MSG;
 
 	unsigned long dataSize = m_CoPData.size();
-	PASSTHRU_MSG txMsg = { m_protocolID, 0, 0, 0, dataSize, dataSize };
-	PASSTHRU_MSG rxMsg;
+	PASSTHRU_MSG txMsg = {};
+	txMsg.ProtocolID = m_protocolID;
+	txMsg.DataSize = dataSize;
+	txMsg.ExtraDataIndex = dataSize;
+	PASSTHRU_MSG rxMsg = {};
+	ISO_TRACE("TX", "ProtocolID=%lu DataSize=%lu ExtraDataIndex=%lu", txMsg.ProtocolID, txMsg.DataSize, txMsg.ExtraDataIndex);
 
 	memcpy(txMsg.Data, &m_CoPData[0], dataSize);
 
+	ISO_TRACE("BEFORE", "_PassThruIoctl ChannelID=%lu Ioctl=FAST_INIT input=%p output=%p", channelID, FAST_INIT, &txMsg, &rxMsg);
 	ret = _PassThruIoctl(channelID, FAST_INIT, &txMsg, &rxMsg);
 	if (ret == STATUS_NOERROR)
+		ISO_TRACE("AFTER", "_PassThruIoctl ret=%ld output DataSize=%lu RxStatus=%lu ProtocolID=%lu", ret, rxMsg.DataSize, rxMsg.RxStatus, rxMsg.ProtocolID);
+	else
+		ISO_TRACE("AFTER", "_PassThruIoctl ret=%ld output fields unavailable", ret);
+	if (ret == STATUS_NOERROR)
 	{
+		if (rxMsg.DataSize == 0)
+			return ERR_TIMEOUT;
 		--m_CopCtrlData.NumSendCycles;
 		--m_CopCtrlData.NumReceiveCycles;
 
 		m_destAddr = m_CoPData[1];
 
-		std::stringstream ss;
-		ss << "RX: ";
-		for (int i = 0; i < rxMsg.DataSize; ++i)
-		{
-			ss << std::hex << (int)rxMsg.Data[i] << " ";
-		}
-		LOGGER.logInfo("ComPrimitive/StartComm", ss.str().c_str());
+		ISO_TRACE("RX", "ProtocolID=%lu RxStatus=%lu Timestamp=%lu DataSize=%lu ExtraDataIndex=%lu", rxMsg.ProtocolID, rxMsg.RxStatus, rxMsg.Timestamp, rxMsg.DataSize, rxMsg.ExtraDataIndex);
 
 		pEvt = new PDU_EVENT_ITEM;
 		pEvt->hCop = m_hCoP;
@@ -74,15 +76,18 @@ long ISO14230ComPrimitive::StartComm(unsigned long channelID, PDU_EVENT_ITEM*& p
 
 		memcpy(pRes->pDataBytes, rxMsg.Data, pRes->NumDataBytes);
 
-		LOGGER.logInfo("ComPrimitive/StartComm", "ISO14230 diagnostic session established to 0x%x", m_destAddr);
+		ISO_TRACE("STATE", "diagnostic session destination=0x%x sendCycles=%d receiveCycles=%d", m_destAddr, m_CopCtrlData.NumSendCycles, m_CopCtrlData.NumReceiveCycles);
 	}
 
+	ISO_TRACE("EXIT", "ret=%ld event=%p", ret, pEvt);
 	return ret;
 }
 
 long ISO14230ComPrimitive::StopComm(unsigned long channelID, PDU_EVENT_ITEM*& pEvt)
 {
 	long ret = STATUS_NOERROR;
+	ISO_TRACE("ENTER", "channelID=%lu hCoP=%u eventOut=%p", channelID, m_hCoP, &pEvt);
+	ISO_TRACE("EXIT", "ret=%ld", ret);
 	return ret;
 }
 
@@ -100,6 +105,9 @@ void checksum(std::vector<UNUM8>& data, UNUM32 dataSize)
 long ISO14230ComPrimitive::SendRecv(unsigned long channelID, PDU_EVENT_ITEM*& pEvt)
 {
 	long ret = STATUS_NOERROR;
+	ISO_TRACE("ENTER", "channelID=%lu hCoP=%u protocolID=%lu dataSize=%zu sendCycles=%d receiveCycles=%d eventOut=%p", channelID, m_hCoP, m_protocolID, m_CoPData.size(), m_CopCtrlData.NumSendCycles, m_CopCtrlData.NumReceiveCycles, &pEvt);
+	if (m_CopCtrlData.NumSendCycles > 0 && (m_CoPData.size() < 2 || m_CoPData.size() > sizeof(PASSTHRU_MSG{}.Data)))
+		return ERR_INVALID_MSG;
 
 	if (m_CopCtrlData.NumSendCycles > 0)
 	{
@@ -111,30 +119,32 @@ long ISO14230ComPrimitive::SendRecv(unsigned long channelID, PDU_EVENT_ITEM*& pE
 				--m_CopCtrlData.NumReceiveCycles;
 			}
 
+			ISO_TRACE("EXIT", "ret=%ld testerPresentHandled=true event=%p", ret, pEvt);
 			return ret;
 		}
 
 		if (CheckDestinationAddress(channelID) != STATUS_NOERROR)
 		{
+			ISO_TRACE("EXIT", "ret=%ld destinationCheckFailed=true", ret);
 			return ret;
 		}
 
-		std::stringstream ss;
-		ss << "TX: ";
-		for (int i = 0; i < m_CoPData.size(); ++i)
-		{
-			ss << std::hex << (int)m_CoPData[i] << " ";
-		}
-		LOGGER.logInfo("ComPrimitive/SendRecv", ss.str().c_str());
-
 		unsigned long numMsgs = 1;
 
+		if (m_CoPData.empty() || m_CoPData.size() > sizeof(PASSTHRU_MSG{}.Data))
+			return ERR_INVALID_MSG;
 		unsigned long dataSize = m_CoPData.size();
-		PASSTHRU_MSG txMsg = { m_protocolID, 0, 0, 0, dataSize, dataSize };
+		PASSTHRU_MSG txMsg = {};
+		txMsg.ProtocolID = m_protocolID;
+		txMsg.DataSize = dataSize;
+		txMsg.ExtraDataIndex = dataSize;
+		ISO_TRACE("TX", "ProtocolID=%lu DataSize=%lu ExtraDataIndex=%lu requestedMessages=%lu Timeout=%d", txMsg.ProtocolID, txMsg.DataSize, txMsg.ExtraDataIndex, numMsgs, TIMEOUT_MS);
 
 		memcpy(txMsg.Data, &m_CoPData[0], dataSize);
 
+		ISO_TRACE("BEFORE", "_PassThruWriteMsgs ChannelID=%lu pMsg=%p pNumMsgs=%p requested=%lu Timeout=%d", channelID, &txMsg, &numMsgs, numMsgs, TIMEOUT_MS);
 		ret = _PassThruWriteMsgs(channelID, &txMsg, &numMsgs, TIMEOUT_MS);
+		ISO_TRACE("AFTER", "_PassThruWriteMsgs ret=%ld returnedMessages=%lu", ret, numMsgs);
 
 		if (ret == STATUS_NOERROR)
 		{
@@ -142,31 +152,27 @@ long ISO14230ComPrimitive::SendRecv(unsigned long channelID, PDU_EVENT_ITEM*& pE
 		}
 		else
 		{
-			LOGGER.logError("ComPrimitive/SendRecv", "_PassThruWriteMsgs failed %u", ret);
+			ISO_TRACE("RESULT", "_PassThruWriteMsgs failed ret=%ld", ret);
 		}
 	}
 
-	if (m_CopCtrlData.NumReceiveCycles > 0 || m_CopCtrlData.NumReceiveCycles == -1)
+	if (m_CopCtrlData.NumReceiveCycles > 0 || m_CopCtrlData.NumReceiveCycles == -1 || m_CopCtrlData.NumReceiveCycles == -2)
 	{
 		PASSTHRU_MSG rxMsg = { 0 };
 		unsigned long numMsgs = 1;
+		ISO_TRACE("BEFORE", "_PassThruReadMsgs ChannelID=%lu pMsg=%p pNumMsgs=%p requested=%lu Timeout=%d", channelID, &rxMsg, &numMsgs, numMsgs, POLL_TIMEOUT_MS);
 		ret = _PassThruReadMsgs(channelID, &rxMsg, &numMsgs, POLL_TIMEOUT_MS);
+		ISO_TRACE("AFTER", "_PassThruReadMsgs ret=%ld returnedMessages=%lu RxStatus=%lu DataSize=%lu", ret, numMsgs, rxMsg.RxStatus, rxMsg.DataSize);
 		if (ret == STATUS_NOERROR && rxMsg.RxStatus == START_OF_MESSAGE)
 		{
 			memset(&rxMsg, 0, sizeof(rxMsg));
 			numMsgs = 1;
+			ISO_TRACE("BEFORE", "_PassThruReadMsgs ChannelID=%lu pMsg=%p pNumMsgs=%p requested=%lu Timeout=%d", channelID, &rxMsg, &numMsgs, numMsgs, TIMEOUT_MS);
 			ret = _PassThruReadMsgs(channelID, &rxMsg, &numMsgs, TIMEOUT_MS);
-			if (ret == STATUS_NOERROR)
+			ISO_TRACE("AFTER", "_PassThruReadMsgs ret=%ld returnedMessages=%lu RxStatus=%lu Timestamp=%lu DataSize=%lu ExtraDataIndex=%lu", ret, numMsgs, rxMsg.RxStatus, rxMsg.Timestamp, rxMsg.DataSize, rxMsg.ExtraDataIndex);
+			if (ret == STATUS_NOERROR && numMsgs > 0)
 			{
-				std::stringstream ss;
-				ss << "RX: ";
-				for (int i = 0; i < rxMsg.DataSize; ++i)
-				{
-					ss << std::hex << (int)rxMsg.Data[i] << " ";
-				}
-				ss << "RXStatus: " << std::hex << (int)rxMsg.RxStatus;
-
-				LOGGER.logInfo("ComPrimitive/SendRecv", ss.str().c_str());
+				ISO_TRACE("RX", "ProtocolID=%lu RxStatus=%lu Timestamp=%lu DataSize=%lu ExtraDataIndex=%lu", rxMsg.ProtocolID, rxMsg.RxStatus, rxMsg.Timestamp, rxMsg.DataSize, rxMsg.ExtraDataIndex);
 
 				if (m_CopCtrlData.NumReceiveCycles != -1)
 				{
@@ -192,24 +198,42 @@ long ISO14230ComPrimitive::SendRecv(unsigned long channelID, PDU_EVENT_ITEM*& pE
 
 				memcpy(pRes->pDataBytes, rxMsg.Data, rxMsg.DataSize);
 			}
+			else if (ret == STATUS_NOERROR)
+			{
+				m_CopCtrlData.NumReceiveCycles = 0;
+				ret = ERR_TIMEOUT;
+			}
 			else
 			{
-				LOGGER.logError("ComPrimitive/SendRecv", "_PassThruReadMsgs failed %u", ret);
+				ISO_TRACE("RESULT", "_PassThruReadMsgs failed ret=%ld", ret);
 			}
 		}
 		else if (ret == ERR_TIMEOUT || ret == ERR_BUFFER_EMPTY)
 		{
-			LOGGER.logInfo("ComPrimitive/SendRecv", "Timeout while waiting SOM");
-			ret = STATUS_NOERROR;
+			ISO_TRACE("RESULT", "waiting for start of message timed out ret=%ld", ret);
+			if (m_CopCtrlData.NumReceiveCycles != -1)
+			{
+				m_CopCtrlData.NumReceiveCycles = 0;
+				ret = ERR_TIMEOUT;
+			}
+			else
+				ret = STATUS_NOERROR;
+		}
+		else if (ret == STATUS_NOERROR && (numMsgs == 0 || rxMsg.RxStatus != START_OF_MESSAGE) && m_CopCtrlData.NumReceiveCycles != -1)
+		{
+			m_CopCtrlData.NumReceiveCycles = 0;
+			ret = ERR_TIMEOUT;
 		}
 	}
 
+	ISO_TRACE("EXIT", "ret=%ld event=%p sendCycles=%d receiveCycles=%d", ret, pEvt, m_CopCtrlData.NumSendCycles, m_CopCtrlData.NumReceiveCycles);
 	return ret;
 }
 
 long ISO14230ComPrimitive::CheckDestinationAddress(unsigned long channelID)
 {
 	long ret = STATUS_NOERROR;
+	ISO_TRACE("ENTER", "channelID=%lu hCoP=%u AutoRestartComm=%s destination=0x%x", channelID, m_hCoP, Settings::AutoRestartComm ? "true" : "false", m_destAddr);
 
 	if (Settings::AutoRestartComm)
 	{
@@ -218,14 +242,14 @@ long ISO14230ComPrimitive::CheckDestinationAddress(unsigned long channelID)
 		// Ignore if not physical (10xxxxxx) or functional (11xxxxxx) addressing
 		if ((format & 0xC0) != 0x80 && (format & 0xC0) != 0xC0)
 		{
-			LOGGER.logInfo("ComPrimitive/CheckDestinationAddress", "Ignoring AutoRestartComm");
+			ISO_TRACE("RESULT", "AutoRestartComm ignored for format=0x%x", format);
+			ISO_TRACE("EXIT", "ret=%ld", ret);
 			return ret; 
 		}
 
 		if (m_CoPData[1] != m_destAddr)
 		{
-			LOGGER.logInfo("ComPrimitive/CheckDestinationAddress", "Destination address mismatch, session 0x%x, msg 0x%x", m_destAddr, m_CoPData[1]);
-			LOGGER.logInfo("ComPrimitive/CheckDestinationAddress", "Restarting comm to destination 0x%x", m_CoPData[1]);
+			ISO_TRACE("ACTION", "destination mismatch session=0x%x message=0x%x; restarting communication", m_destAddr, m_CoPData[1]);
 
 			std::vector<UNUM8> data = { 0x81, 0x00, 0xf1, 0x81, 0x00 };
 			data[1] = m_CoPData[1];
@@ -238,7 +262,9 @@ long ISO14230ComPrimitive::CheckDestinationAddress(unsigned long channelID)
 			auto cop = ISO14230ComPrimitive(PDU_COPT_STARTCOMM, data.size(), data.data(), &ctrlData, nullptr, m_protocolID);
 
 			PDU_EVENT_ITEM* pEvt = nullptr;
+			ISO_TRACE("BEFORE", "temporary ComPrimitive::StartComm channelID=%lu target=0x%x", channelID, data[1]);
 			ret = cop.StartComm(channelID, pEvt);
+			ISO_TRACE("AFTER", "temporary ComPrimitive::StartComm ret=%ld event=%p", ret, pEvt);
 			if (ret == STATUS_NOERROR)
 			{
 				PDU_EVENT_ITEM* pIt = (PDU_EVENT_ITEM*)pEvt;
@@ -253,12 +279,14 @@ long ISO14230ComPrimitive::CheckDestinationAddress(unsigned long channelID)
 		}
 	}
 
+	ISO_TRACE("EXIT", "ret=%ld", ret);
 	return ret;
 }
 
 bool ISO14230ComPrimitive::TesterPresentWorkaround(PDU_EVENT_ITEM*& pEvt)
 {
 	bool ret = false;
+	ISO_TRACE("ENTER", "hCoP=%u DisableTesterpresent=%s FixTesterpresentDestination=%s dataSize=%zu", m_hCoP, Settings::DisableTesterpresent ? "true" : "false", Settings::FixTesterpresentDestination ? "true" : "false", m_CoPData.size());
 
 	if (Settings::DisableTesterpresent)
 	{
@@ -281,7 +309,7 @@ bool ISO14230ComPrimitive::TesterPresentWorkaround(PDU_EVENT_ITEM*& pEvt)
 			pRes->TxMsgDoneTimestamp = 0;
 			pRes->UniqueRespIdentifier = PDU_ID_UNDEF;
 
-			LOGGER.logInfo("ComPrimitive/TesterPresentWorkaround", "Simulating TesterPresent for DPDU host, message not sent to ECU");
+			ISO_TRACE("ACTION", "simulating TesterPresent; message suppressed; event=%p", pEvt);
 
 			ret = true;
 		}
@@ -293,11 +321,12 @@ bool ISO14230ComPrimitive::TesterPresentWorkaround(PDU_EVENT_ITEM*& pEvt)
 			m_CoPData[1] = m_destAddr;
 			checksum(m_CoPData, m_CoPData.size() - 1);
 
-			LOGGER.logInfo("ComPrimitive/TesterPresentWorkaround", "TesterPresent destination fixed to 0x%x", m_destAddr);
+			ISO_TRACE("ACTION", "TesterPresent destination fixed to 0x%x", m_destAddr);
 
 			ret = false;
 		}
 	}
 
+	ISO_TRACE("EXIT", "handled=%s event=%p", ret ? "true" : "false", pEvt);
 	return ret;
 }

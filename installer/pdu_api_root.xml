@@ -5,6 +5,6 @@
     <SHORT_NAME>DPDU_J2534</SHORT_NAME>
     <DESCRIPTION>D-PDU-to-J2534 Implementation</DESCRIPTION>
     <SUPPLIER_NAME>github.com/JohnJocke</SUPPLIER_NAME>
-    <LIBRARY_FILE URI="file://C:\Program Files (x86)\dpdu_j2534\driver.dll"/>
+    <LIBRARY_FILE URI="file://C:\Users\Nubir\source\repos\Marcos1012-UGR\dpdu-passthru\driver\Release\driver.dll"/>
   </MVCI_PDU_API>
 </MVCI_PDU_API_ROOT>

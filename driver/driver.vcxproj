@@ -35,7 +35,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>NotSet</CharacterSet>
   </PropertyGroup>
@@ -170,6 +170,7 @@
     <ClInclude Include="ComLogicalLink.h" />
     <ClInclude Include="ComPrimitive.h" />
     <ClInclude Include="framework.h" />
+    <ClInclude Include="GenericComPrimitive.h" />
     <ClInclude Include="ISO14230ComPrimitive.h" />
     <ClInclude Include="j2534\j2534_v0404.h" />
     <ClInclude Include="j2534\shim_loader.h" />
@@ -179,11 +180,13 @@
     <ClInclude Include="pch.h" />
     <ClInclude Include="pdu_api.h" />
     <ClInclude Include="Settings.h" />
+    <ClInclude Include="version.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ComLogicalLink.cpp" />
     <ClCompile Include="ComPrimitive.cpp" />
     <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="GenericComPrimitive.cpp" />
     <ClCompile Include="ISO14230ComPrimitive.cpp" />
     <ClCompile Include="j2534\shim_loader.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
